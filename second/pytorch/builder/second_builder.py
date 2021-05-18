@@ -79,6 +79,7 @@ def build(model_cfg: second_pb2.VoxelNet, voxel_generator,
     sin_error_factor = model_cfg.sin_error_factor
     if sin_error_factor == 0:
         sin_error_factor = 1.0
+    print("CLASS NAME:", model_cfg.network_class_name)
     net = get_voxelnet_class(model_cfg.network_class_name)(
         dense_shape,
         num_class=num_class,

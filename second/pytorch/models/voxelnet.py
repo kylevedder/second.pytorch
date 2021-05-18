@@ -105,6 +105,7 @@ class VoxelNet(nn.Module):
                  num_direction_bins=2,
                  direction_limit_offset=0,
                  name='voxelnet'):
+        print("VOXELNET CONSTRUCTOR")
         super().__init__()
         self.name = name
         self._sin_error_factor = sin_error_factor
@@ -139,6 +140,7 @@ class VoxelNet(nn.Module):
         self._nms_class_agnostic = nms_class_agnostic
         self._num_direction_bins = num_direction_bins
         self._dir_limit_offset = direction_limit_offset
+        print("VOXEL FEATURE CLASS:", vfe_class_name)
         self.voxel_feature_extractor = voxel_encoder.get_vfe_class(vfe_class_name)(
             num_input_features,
             use_norm,
@@ -147,12 +149,14 @@ class VoxelNet(nn.Module):
             voxel_size=self.voxel_generator.voxel_size,
             pc_range=self.voxel_generator.point_cloud_range,
         )
+        print("MIDDLE CLASS:", middle_class_name)
         self.middle_feature_extractor = middle.get_middle_class(middle_class_name)(
             output_shape,
             use_norm,
             num_input_features=middle_num_input_features,
             num_filters_down1=middle_num_filters_d1,
             num_filters_down2=middle_num_filters_d2)
+        print("RPN CLASS:", rpn_class_name)
         self.rpn = rpn.get_rpn_class(rpn_class_name)(
             use_norm=True,
             num_class=num_class,
@@ -331,6 +335,7 @@ class VoxelNet(nn.Module):
         spatial_features = self.middle_feature_extractor(
             voxel_features, coors, batch_size)
         self.end_timer("middle forward")
+        # print(spatial_features.shape)
         self.start_timer("rpn forward")
         preds_dict = self.rpn(spatial_features)
         self.end_timer("rpn forward")
@@ -339,6 +344,10 @@ class VoxelNet(nn.Module):
     def forward(self, example):
         """module's forward should always accept dict and return loss.
         """
+        # print("VoxelNet Forward Example:")
+        # print(example.keys())
+        # print("coordinates:", example["coordinates"].shape)
+        # print(example["coordinates"])
         voxels = example["voxels"]
         num_points = example["num_points"]
         coors = example["coordinates"]
