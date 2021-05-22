@@ -315,14 +315,29 @@ class RPNNoHeadBase(nn.Module):
         raise NotImplementedError
 
     def forward(self, x):
+        # blocks_total_time = 0
+        # deblocks_total_time = 0
+
         ups = []
         stage_outputs = []
         for i in range(len(self.blocks)):
+            # blocks_before = time.time()
+            # print(f"Before block {i} shape:", x.shape)
             x = self.blocks[i](x)
+            # blocks_after = time.time()
+            # blocks_total_time += (blocks_after - blocks_before)
+            # print(f"Block {i} shape:", x.shape)
             stage_outputs.append(x)
             if i - self._upsample_start_idx >= 0:
+                # deblocks_before = time.time()
                 res = self.deblocks[i - self._upsample_start_idx](x)
+                # deblocks_after = time.time()
+                # deblocks_total_time += (deblocks_after - deblocks_before)
+                # print(f"Deblock {i} shape:", res.shape)
                 ups.append(res)
+
+        # print(">>>>>>Blocks total ms: %.2f" % (blocks_total_time * 1000),
+        #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
 
         if len(ups) > 0:
             x = torch.cat(ups, dim=1)
@@ -501,6 +516,38 @@ class RPNV2(RPNBase):
         return block, planes
 
 @register_rpn
+class RPNV2Conv2x2(RPNBase):
+    def _make_layer(self, inplanes, planes, num_blocks, stride=1):
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm2d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=False)(
+                nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=True)(
+                nn.ConvTranspose2d)
+
+        block = Sequential(
+            nn.ZeroPad2d(1),
+            Conv2d(inplanes, planes, 3, stride=stride),
+            BatchNorm2d(planes),
+            nn.ReLU(),
+        )
+        for j in range(num_blocks):
+            block.add(Conv2d(planes, planes, 3, padding=1))
+            block.add(BatchNorm2d(planes))
+            block.add(nn.ReLU())
+
+        return block, planes
+
+@register_rpn
 class RPNNoHead(RPNNoHeadBase):
     def _make_layer(self, inplanes, planes, num_blocks, stride=1):
         if self._use_norm:
@@ -576,22 +623,6 @@ class RPNNoHeadBaseSparse(nn.Module):
         for val in must_equal_list:
             assert val == must_equal_list[0]
 
-        if use_norm:
-            if use_groupnorm:
-                BatchNorm2d = change_default_args(
-                    num_groups=num_groups, eps=1e-3)(GroupNorm)
-            else:
-                BatchNorm2d = change_default_args(
-                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
-            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
-            ConvTranspose2d = change_default_args(bias=False)(
-                spconv.SparseConvTranspose2d)
-        else:
-            BatchNorm2d = Empty
-            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
-            ConvTranspose2d = change_default_args(bias=True)(
-                spconv.SparseConvTranspose2d)
-
         in_filters = [num_input_features, *num_filters[:-1]]
         blocks = []
         deblocks = []
@@ -601,37 +632,11 @@ class RPNNoHeadBaseSparse(nn.Module):
                 in_filters[i],
                 num_filters[i],
                 layer_num,
+                i,
                 stride=layer_strides[i])
             blocks.append(block)
             if i - self._upsample_start_idx >= 0:
-                stride = upsample_strides[i - self._upsample_start_idx]
-                if stride >= 1:
-                    stride = np.round(stride).astype(np.int64)
-                    deblock = spconv.SparseSequential(
-                        ConvTranspose2d(
-                            num_out_filters,
-                            num_upsample_filters[i - self._upsample_start_idx],
-                            stride,
-                            stride=stride),
-                        BatchNorm2d(
-                            num_upsample_filters[i -
-                                                 self._upsample_start_idx]),
-                        nn.ReLU(),
-                        spconv.ToDense()
-                    )
-                else:
-                    stride = np.round(1 / stride).astype(np.int64)
-                    deblock = spconv.SparseSequential(
-                        Conv2d(
-                            num_out_filters,
-                            num_upsample_filters[i - self._upsample_start_idx],
-                            stride),
-                        BatchNorm2d(
-                            num_upsample_filters[i -
-                                                 self._upsample_start_idx]),
-                        nn.ReLU(),
-                        spconv.ToDense()
-                    )
+                deblock = self._make_deblock(num_out_filters, i)
                 deblocks.append(deblock)
         self._num_out_filters = num_out_filters
         self.blocks = nn.ModuleList(blocks)
@@ -647,36 +652,95 @@ class RPNNoHeadBaseSparse(nn.Module):
     def _make_layer(self, inplanes, planes, num_blocks, stride=1):
         raise NotImplementedError
 
+
+    def _make_deblock(self, num_out_filters, idx):
+        stride = self._upsample_strides[idx - self._upsample_start_idx]
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
+            ConvTranspose2d = change_default_args(bias=False)(
+                spconv.SparseConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
+            ConvTranspose2d = change_default_args(bias=True)(
+                spconv.SparseConvTranspose2d)
+        if stride >= 1:
+            stride = np.round(stride).astype(np.int64)
+            deblock = spconv.SparseSequential(
+                ConvTranspose2d(
+                    num_out_filters,
+                    self._num_upsample_filters[idx - self._upsample_start_idx],
+                    stride,
+                    stride=stride),
+                BatchNorm2d(
+                    self._num_upsample_filters[idx -
+                                            self._upsample_start_idx]),
+                nn.ReLU(),
+            )
+        else:
+            stride = np.round(1 / stride).astype(np.int64)
+            deblock = spconv.SparseSequential(
+                Conv2d(
+                    num_out_filters,
+                    self._num_upsample_filters[idx - self._upsample_start_idx],
+                    stride),
+                BatchNorm2d(
+                    self._num_upsample_filters[idx -
+                                            self._upsample_start_idx]),
+                nn.ReLU(),
+            )
+        return deblock
+
+
     def forward(self, x):
         ups = []
         stage_outputs = []
-        before_from_dense = time.time()
-        x = x.permute(0, 2, 3, 1)
-        x = spconv.SparseConvTensor.from_dense(x)
-        print(" Before sparsity: %.4f" % x.sparity)
-        after_from_dense = time.time()
-        
-        blocks_total_time = 0
-        deblocks_total_time = 0
 
+        x = spconv.SparseConvTensor.from_sparse(x)
+        # print(" Before sparsity: %.4f" % x.sparity, "shape:", x.dense().shape)
+        # after_from_dense = time.time()
+        
+        # blocks_total_time = 0
+        # deblocks_total_time = 0
+        # plot_pseudo_img(x, "Raw pseudoimage")
         for i in range(len(self.blocks)):
-            blocks_before = time.time()
+            # print("Block:")
+            # print(self.blocks[i])
+            # blocks_before = time.time()
+            # print(f"Block {i} before x type:", type(x))
             x = self.blocks[i](x)
-            blocks_after = time.time()
-            blocks_total_time += (blocks_after - blocks_before)
-            print(f"Block {i} sparsity: %.4f" % x.sparity)
+
+            # plot_pseudo_img(x, f"After block {i}")
+            # blocks_after = time.time()
+            # blocks_total_time += (blocks_after - blocks_before)
+            # print(f"Block {i} sparsity: %.4f" % x.sparity, "shape:", x.dense().shape)
             stage_outputs.append(x)
             if i - self._upsample_start_idx >= 0:
-                deblocks_before = time.time()
+                # deblocks_before = time.time()
                 res = self.deblocks[i - self._upsample_start_idx](x)
-                deblocks_after = time.time()
-                deblocks_total_time += (deblocks_after - deblocks_before)
+
+                # plot_pseudo_img(res, f"After deblock {i}")
+                # deblocks_after = time.time()
+                # deblocks_total_time += (deblocks_after - deblocks_before)
+                # print(f"Deblock {i} shape:", res.shape)
+                # print(f"Deblock {i} sparsity: %.4f" % res.sparity, "shape:", res.dense().shape)
                 ups.append(res)
-        print("from_dense() time ms: %.2f" % ((after_from_dense - before_from_dense) * 1000), 
-              "Blocks total ms: %.2f" % (blocks_total_time * 1000),
-              "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
+        # print(">>>>>>from_dense() time ms: %.2f" % ((after_from_dense - before_from_dense) * 1000), 
+        # print("Blocks total ms: %.2f" % (blocks_total_time * 1000),
+        #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
         if len(ups) > 0:
-            x = torch.cat(ups, dim=1)
+            lst = [e.dense() for e in ups]
+            # print("DENSE SHAPES:", [e.shape for e in lst])
+            x = torch.cat(lst, dim=1)
+            # print("DENSE SHAPE:", x.shape)
+            # x_sp = cat_sparse_dim1(ups).dense() #torch.cat(ups, dim=1)
+            # print("SPARSE SHAPE:", x_sp.shape)
         res = {}
         for i, up in enumerate(ups):
             res[f"up{i}"] = up
@@ -685,6 +749,40 @@ class RPNNoHeadBaseSparse(nn.Module):
         res["out"] = x
         return res
 
+# def cat_sparse_dim1(lst):
+#     out = spconv.SparseConvTensor(None, None, lst[0].spatial_shape, lst[0].batch_size)
+#     dim1_lengths = [0] + [t.spatial_shape[0] for t in lst]
+#     print("t.spatial_shape:", [t.spatial_shape for t in lst])
+#     print("t.features.shape:",[t.features.shape for t in lst])
+#     running_lengths = np.cumsum(dim1_lengths)
+#     # Features require no scaling as they are values
+#     out.features = torch.cat([t.features for t in lst], dim=0)
+#     # Indices require scaling based on index
+#     out.indices = torch.cat([t.indices + torch.tensor([0, running_lengths[idx], 0]).to(t.indices.device) for idx, t in enumerate(lst)])
+#     out.spatial_shape = torch.Size([running_lengths[-1], out.spatial_shape[1]])
+#     return out
+
+def plot_pseudo_img(t, title):
+    if isinstance(t, spconv.SparseConvTensor):
+        t = t.dense().detach()
+    elif isinstance(t, torch.Tensor):
+        t = t.detach()
+        if t.is_sparse:
+            t = t.to_dense()
+            t = t.permute(0, 3, 1, 2)
+    t = t.cpu().numpy()
+    print("Image shape:", t.shape)
+    ts = [t[v] for v in range(t.shape[0])]
+    imgs = [np.any(t, 0) for t in ts]
+
+    import matplotlib.pyplot as plt
+    for idx, img in enumerate(imgs):
+        plt.subplot(2, 1, idx + 1)
+        flt_img = img.flatten()
+        nonzeros = flt_img.sum()
+        plt.title(title + " Nonzeros: " + str(nonzeros) + "/" + str(flt_img.shape[0]) + " = %: " + str(nonzeros / flt_img.shape[0]))
+        plt.imshow(img)
+    plt.show()
 
 class RPNBaseSparse(RPNNoHeadBaseSparse):
     def __init__(self,
@@ -774,6 +872,16 @@ class RPNBaseSparse(RPNNoHeadBaseSparse):
             ret_dict["dir_cls_preds"] = dir_cls_preds
         return ret_dict
 
+class PrintLayer(SparseModule):
+    def __init__(self, id):
+        super(PrintLayer, self).__init__()
+        self.id = id
+    
+    def forward(self, x):
+        # Do your print / debug stuff here
+        print(self.id, "Sparsity:", x.sparity)
+        return x
+
 class SparseZeroPad2d(SparseModule):
     def __init__(self, pad):
         super(SparseModule, self).__init__()
@@ -787,8 +895,104 @@ class SparseZeroPad2d(SparseModule):
         return x
 
 @register_rpn
+class RPNV2SemiSparse(RPNBaseSparse):
+    def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+            SparseConv2d = change_default_args(bias=False)(spconv.SparseConv2d)
+            DenseConv2d = change_default_args(bias=False)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=False)(
+                spconv.SparseConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            SparseConv2d = change_default_args(bias=True)(spconv.SparseConv2d)
+            DenseConv2d = change_default_args(bias=True)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=True)(
+                spconv.SparseConvTranspose2d)
+        print("STRIDE:", stride)
+
+        if idx == 0:
+            block = spconv.SparseSequential(
+                SparseZeroPad2d(1),
+                SparseConv2d(inplanes, planes, 3, stride=stride),
+                BatchNorm2d(planes),
+                nn.ReLU(),
+            )
+            for j in range(num_blocks):
+                block.add(SparseConv2d(planes, planes, 3, padding=1))
+                block.add(BatchNorm2d(planes))
+                block.add(nn.ReLU())
+        else:
+            block = Sequential(
+                nn.ZeroPad2d(1),
+                DenseConv2d(inplanes, planes, 3, stride=stride),
+                BatchNorm2d(planes),
+                nn.ReLU(),
+            )
+            for j in range(num_blocks):
+                block.add(DenseConv2d(planes, planes, 3, padding=1))
+                block.add(BatchNorm2d(planes))
+                block.add(nn.ReLU())
+
+        return block, planes
+
+    def _make_deblock(self, num_out_filters, idx):
+        print("CUSTOM MAKE DEBLOCK")
+        stride = self._upsample_strides[idx - self._upsample_start_idx]
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+            SparseConvTranspose2d = change_default_args(bias=False)(
+                spconv.SparseConvTranspose2d)
+            DenseConvTranspose2d = change_default_args(bias=False)(
+                nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            SparseConvTranspose2d = change_default_args(bias=True)(
+                spconv.SparseConvTranspose2d)
+            DenseConvTranspose2d = change_default_args(bias=True)(
+                nn.ConvTranspose2d)
+        stride = np.round(stride).astype(np.int64)
+        if (idx == 0):
+            deblock = spconv.SparseSequential(
+                SparseConvTranspose2d(
+                    num_out_filters,
+                    self._num_upsample_filters[idx - self._upsample_start_idx],
+                    stride,
+                    stride=stride),
+                BatchNorm2d(
+                    self._num_upsample_filters[idx -
+                                            self._upsample_start_idx]),
+                nn.ReLU(),
+                spconv.ToDense()
+            )
+        else:
+            stride = np.round(stride).astype(np.int64)
+            deblock = Sequential(
+                DenseConvTranspose2d(
+                    num_out_filters,
+                    self._num_upsample_filters[idx - self._upsample_start_idx],
+                    stride,
+                    stride=stride),
+                BatchNorm2d(
+                    self._num_upsample_filters[idx -
+                                            self._upsample_start_idx]),
+                nn.ReLU(),
+            )
+        return deblock
+
+@register_rpn
 class RPNV2Sparse(RPNBaseSparse):
-    def _make_layer(self, inplanes, planes, num_blocks, stride=1):
+    def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         if self._use_norm:
             if self._use_groupnorm:
                 BatchNorm2d = change_default_args(
@@ -804,7 +1008,7 @@ class RPNV2Sparse(RPNBaseSparse):
             Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
             ConvTranspose2d = change_default_args(bias=True)(
                 spconv.SparseConvTranspose2d)
-
+        print("STRIDE:", stride)
         block = spconv.SparseSequential(
             SparseZeroPad2d(1),
             Conv2d(inplanes, planes, 3, stride=stride),
@@ -818,9 +1022,21 @@ class RPNV2Sparse(RPNBaseSparse):
 
         return block, planes
 
+class SparseScale2d(SparseModule):
+    def __init__(self, scale):
+        super(SparseModule, self).__init__()
+        self.scale = scale
+
+    def forward(self, x):
+        w, h = x.spatial_shape
+        x.spatial_shape = torch.Size([w * self.scale, h * self.scale])
+        x.indices[:, 1:] = x.indices[:, 1:] * self.scale
+        return x
+
 @register_rpn
-class RPNV2SubM(RPNBaseSparse):
-    def _make_layer(self, inplanes, planes, num_blocks, stride=1):
+class RPNV2Pyramid(RPNBaseSparse):
+    def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
+        print("NUM BLOCKS:", num_blocks)
         if self._use_norm:
             if self._use_groupnorm:
                 BatchNorm2d = change_default_args(
@@ -828,24 +1044,66 @@ class RPNV2SubM(RPNBaseSparse):
             else:
                 BatchNorm2d = change_default_args(
                     eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
-            Conv2d = change_default_args(bias=False)(spconv.SubMConv2d)
+            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
+            SubMConv2d = change_default_args(bias=False)(spconv.SubMConv2d)
             ConvTranspose2d = change_default_args(bias=False)(
                 spconv.SparseConvTranspose2d)
         else:
             BatchNorm2d = Empty
-            Conv2d = change_default_args(bias=True)(spconv.SubMConv2d)
+            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
+            SubMConv2d = change_default_args(bias=True)(spconv.SubMConv2d)
             ConvTranspose2d = change_default_args(bias=True)(
                 spconv.SparseConvTranspose2d)
 
         block = spconv.SparseSequential(
-            SparseZeroPad2d(1),
+            SparseZeroPad2d(1),         
+            # PrintLayer(0),   
             Conv2d(inplanes, planes, 3, stride=stride),
             BatchNorm2d(planes),
             nn.ReLU(),
+            # PrintLayer(1),
         )
         for j in range(num_blocks):
-            block.add(Conv2d(planes, planes, 3, padding=1))
-            block.add(BatchNorm2d(planes))
+            block.add(SubMConv2d(planes, planes, 3, padding=1))
+            block.add(BatchNorm2d(planes)),
             block.add(nn.ReLU())
+            # block.add(PrintLayer(2 + j))
+
+        return block, planes
+
+@register_rpn
+class RPNV2Pyramid2x2(RPNBaseSparse):
+    def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
+        print("NUM BLOCKS:", num_blocks, "STRIDE:", stride)
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
+            SubMConv2d = change_default_args(bias=False)(spconv.SubMConv2d)
+            ConvTranspose2d = change_default_args(bias=False)(
+                spconv.SparseConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
+            SubMConv2d = change_default_args(bias=True)(spconv.SubMConv2d)
+            ConvTranspose2d = change_default_args(bias=True)(
+                spconv.SparseConvTranspose2d)
+
+        block = spconv.SparseSequential(    
+            # PrintLayer(0),   
+            Conv2d(inplanes, planes, 2, stride=stride),
+            BatchNorm2d(planes),
+            nn.ReLU(),
+            # PrintLayer(1),
+        )
+        for j in range(num_blocks):
+            block.add(SubMConv2d(planes, planes, 3, padding=1))
+            block.add(BatchNorm2d(planes)),
+            block.add(nn.ReLU())
+            # block.add(PrintLayer(2 + j))
 
         return block, planes

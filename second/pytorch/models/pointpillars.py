@@ -442,8 +442,7 @@ class PointPillarsScatter(nn.Module):
         self.nchannels = num_input_features
 
     def forward(self, voxel_features, coords, batch_size):
-
-        # batch_canvas will be the final output.
+        # batch_canvas will be the final output.        
         batch_canvas = []
         for batch_itt in range(batch_size):
             # Create the canvas for this sample
@@ -453,9 +452,14 @@ class PointPillarsScatter(nn.Module):
                 dtype=voxel_features.dtype,
                 device=voxel_features.device)
 
+
             # Only include non-empty pillars
             batch_mask = coords[:, 0] == batch_itt
             this_coords = coords[batch_mask, :]
+
+
+            # sp_canvas = torch.sparse_coo_tensor(this_coords[:,2:4])
+
             indices = this_coords[:, 2] * self.nx + this_coords[:, 3]
             indices = indices.type(torch.long)
             voxels = voxel_features[batch_mask, :]
@@ -474,3 +478,37 @@ class PointPillarsScatter(nn.Module):
         batch_canvas = batch_canvas.view(batch_size, self.nchannels, self.ny,
                                          self.nx)
         return batch_canvas
+
+@register_middle
+class PointPillarsScatterSparse(nn.Module):
+    def __init__(self,
+                 output_shape,
+                 use_norm=True,
+                 num_input_features=64,
+                 num_filters_down1=[64],
+                 num_filters_down2=[64, 64],
+                 name='SpMiddle2K'):
+        """
+        Point Pillar's Scatter.
+        Converts learned features from dense tensor to sparse pseudo image. This replaces SECOND's
+        second.pytorch.voxelnet.SparseMiddleExtractor.
+        :param output_shape: ([int]: 4). Required output shape of features.
+        :param num_input_features: <int>. Number of input features.
+        """
+
+        super().__init__()
+        self.name = 'PointPillarsScatterSparse'
+        self.output_shape = output_shape
+        self.ny = output_shape[2]
+        self.nx = output_shape[3]
+        self.nchannels = num_input_features
+
+    def forward(self, voxel_features, coords, batch_size):
+        # batch_canvas will be the final output.        
+        batch_canvas = []
+
+        sparse_coords = coords[:, [0,2,3]]
+
+        out_shape = (batch_size, self.output_shape[2], self.output_shape[3], voxel_features.shape[1])
+        sp_batch = torch.sparse_coo_tensor(sparse_coords.t(), voxel_features, out_shape)        
+        return sp_batch
