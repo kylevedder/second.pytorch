@@ -114,7 +114,7 @@ class SimpleModelLog:
                     continue
                 self.summary_writter.add_scalar(k, v, step)
         log_str = metric_to_str(metrics)
-        print(log_str)
+        print(log_str, flush=True)
         print(log_str, file=self.log_file)
         print(json.dumps(metrics), file=self.log_mjson_file)
 
