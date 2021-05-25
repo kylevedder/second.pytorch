@@ -1,4 +1,4 @@
-FROM nvidia/cudagl:10.1-devel-ubuntu18.04
+FROM nvidia/cuda:11.1-cudnn8-devel-ubuntu18.04
 
 SHELL ["/bin/bash", "-c"]
 
@@ -13,15 +13,8 @@ RUN rm Miniconda3-latest-Linux-x86_64.sh
 ENV PATH=/miniconda/bin:${PATH}
 RUN conda update -y conda
 
-RUN conda install \
-  pip \
-  pytorch==1.7.0 \
-  torchvision==0.8.0 \
-  torchaudio==0.7.0 \
-  cudnn=7.6 \
-  cudatoolkit=10.1 \
-  cudatoolkit-dev=10.1\
-  -c pytorch -c conda-forge
+RUN conda install pip
+RUN pip3 install torch==1.8.1+cu111 torchvision==0.9.1+cu111 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
 
 RUN python -c "import torch; print(torch.__version__)"
 RUN nvcc --version
@@ -35,7 +28,7 @@ RUN apt update
 RUN apt install -y cmake
 
 # Install prerequisites needed for spconv and second.pytorch.
-RUN apt install -y libboost-all-dev
+RUN apt install -y libboost-all-dev libgl1-mesa-dev
 RUN conda install scikit-image scipy numba pillow matplotlib seaborn psutil
 RUN pip install fire tensorboardX protobuf opencv-python
 
