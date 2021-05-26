@@ -30,7 +30,7 @@ RUN apt install -y cmake
 # Install prerequisites needed for spconv and second.pytorch.
 RUN apt install -y libboost-all-dev libgl1-mesa-dev
 RUN conda install scikit-image scipy numba pillow matplotlib seaborn psutil
-RUN pip install fire tensorboardX protobuf opencv-python
+RUN pip install fire tensorboardX protobuf opencv-python nuscenes-devkit
 
 # Install spconv
 RUN git clone --recurse-submodules https://github.com/kylevedder/spconv.git spconv
