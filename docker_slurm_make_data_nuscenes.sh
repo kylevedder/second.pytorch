@@ -7,7 +7,7 @@ srun --gpus=1\
  --container-image=docker-registry.grasp.cluster#second-pytorch-sparse\
  --time=12:00:00\
  --partition=eaton-compute\
- bash -c "nvidia-smi && pip3 install nuscenes-devkit && python create_data.py nuscenes_data_prep /Datasets/nuscenes/train \"v1.0-trainval\" \"NuScenesDataset\" --max_sweeps=10"
+ bash -c "nvidia-smi && python create_data.py nuscenes_data_prep /Datasets/nuscenes/test \"v1.0-test\" \"NuScenesDataset\" --max_sweeps=10"
 # -w node-3090-1\
 # --pty\
 # rl_algs/LPG-FTW/experiments/habitat_pgftw.py
