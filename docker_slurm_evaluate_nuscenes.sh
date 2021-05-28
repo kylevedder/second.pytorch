@@ -7,7 +7,7 @@ srun --gpus=1\
  --container-image=docker-registry.grasp.cluster#second-pytorch-sparse\
  --time=24:00:00\
  --partition=eaton-compute\
- bash -c "nvidia-smi && python ./pytorch/train.py train --resume --config_path=./configs/pointpillars/car/xyres_16_sparse.config --model_dir=./model_dir_car_16_sparse/"
+ bash -c "nvidia-smi && python ./pytorch/train.py evaluate --config_path=./configs/nuscenes/all.pp.largea.config --model_dir=./model_dir_nuscenes_car_16_sparse/ --measure_time=True"
 # -w node-3090-1\
 # --pty\
 # rl_algs/LPG-FTW/experiments/habitat_pgftw.py
