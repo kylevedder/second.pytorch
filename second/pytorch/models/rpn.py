@@ -672,12 +672,15 @@ class RPNNoHeadBaseSparse(nn.Module):
                 spconv.SparseConvTranspose2d)
         if stride >= 1:
             stride = np.round(stride).astype(np.int64)
+            print("DEBLOCK CONV_TRANSPOSE STRIDE:", stride)
             deblock = spconv.SparseSequential(
+                # PrintLayer(stride),
                 ConvTranspose2d(
                     num_out_filters,
                     self._num_upsample_filters[idx - self._upsample_start_idx],
                     stride,
                     stride=stride),
+                # PrintLayer(stride),
                 BatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
@@ -685,11 +688,15 @@ class RPNNoHeadBaseSparse(nn.Module):
             )
         else:
             stride = np.round(1 / stride).astype(np.int64)
+            print("DEBLOCK CONV STRIDE:", stride)
             deblock = spconv.SparseSequential(
+                # PrintLayer(stride),
                 Conv2d(
                     num_out_filters,
                     self._num_upsample_filters[idx - self._upsample_start_idx],
-                    stride),
+                    stride, 
+                    stride=stride),
+                # PrintLayer(stride),
                 BatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
@@ -728,7 +735,7 @@ class RPNNoHeadBaseSparse(nn.Module):
                 # plot_pseudo_img(res, f"After deblock {i}")
                 # deblocks_after = time.time()
                 # deblocks_total_time += (deblocks_after - deblocks_before)
-                # print(f"Deblock {i} shape:", res.shape)
+                # print(f"Deblock {i} shape:", res.dense().shape)
                 # print(f"Deblock {i} sparsity: %.4f" % res.sparity, "shape:", res.dense().shape)
                 ups.append(res)
         # print(">>>>>>from_dense() time ms: %.2f" % ((after_from_dense - before_from_dense) * 1000), 
@@ -873,13 +880,13 @@ class RPNBaseSparse(RPNNoHeadBaseSparse):
         return ret_dict
 
 class PrintLayer(SparseModule):
-    def __init__(self, id):
+    def __init__(self, msg):
         super(PrintLayer, self).__init__()
-        self.id = id
+        self.msg = msg
     
     def forward(self, x):
         # Do your print / debug stuff here
-        print(self.id, "Sparsity:", x.sparity)
+        print(self.msg, "Shape:", x.dense().shape, "Sparsity:", x.sparity)
         return x
 
 class SparseZeroPad2d(SparseModule):
