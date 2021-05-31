@@ -581,6 +581,8 @@ class RPNNoHead(RPNNoHeadBase):
 
 ############################ Sparse implementation
 
+LAST_SPARSE_IDX = 0
+
 class RPNNoHeadBaseSparse(nn.Module):
     def __init__(self,
                  use_norm=True,
@@ -641,6 +643,12 @@ class RPNNoHeadBaseSparse(nn.Module):
         self._num_out_filters = num_out_filters
         self.blocks = nn.ModuleList(blocks)
         self.deblocks = nn.ModuleList(deblocks)
+        print("Blocks:")
+        for b in blocks:
+            print(b)
+        print("Deblocks:")
+        for d in deblocks:
+            print(d)
 
     @property
     def downsample_factor(self):
@@ -720,7 +728,11 @@ class RPNNoHeadBaseSparse(nn.Module):
             # print("Block:")
             # print(self.blocks[i])
             # blocks_before = time.time()
+            if i == (LAST_SPARSE_IDX + 1):
+                # print(f"Made x dense at step {i}")
+                x = x.dense()
             # print(f"Block {i} before x type:", type(x))
+            # print(self.blocks[i])
             x = self.blocks[i](x)
 
             # plot_pseudo_img(x, f"After block {i}")
@@ -742,9 +754,9 @@ class RPNNoHeadBaseSparse(nn.Module):
         # print("Blocks total ms: %.2f" % (blocks_total_time * 1000),
         #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
         if len(ups) > 0:
-            lst = [e.dense() for e in ups]
+            # lst = [e.dense() for e in ups]
             # print("DENSE SHAPES:", [e.shape for e in lst])
-            x = torch.cat(lst, dim=1)
+            x = torch.cat(ups, dim=1)
             # print("DENSE SHAPE:", x.shape)
             # x_sp = cat_sparse_dim1(ups).dense() #torch.cat(ups, dim=1)
             # print("SPARSE SHAPE:", x_sp.shape)
@@ -906,44 +918,49 @@ class RPNV2SemiSparse(RPNBaseSparse):
     def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         if self._use_norm:
             if self._use_groupnorm:
-                BatchNorm2d = change_default_args(
+                SparseBatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+                DenseBatchNorm2d = change_default_args(
                     num_groups=self._num_groups, eps=1e-3)(GroupNorm)
             else:
-                BatchNorm2d = change_default_args(
+                SparseBatchNorm2d = change_default_args(
                     eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+                DenseBatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm2d)
             SparseConv2d = change_default_args(bias=False)(spconv.SparseConv2d)
             DenseConv2d = change_default_args(bias=False)(nn.Conv2d)
             ConvTranspose2d = change_default_args(bias=False)(
                 spconv.SparseConvTranspose2d)
         else:
-            BatchNorm2d = Empty
+            SparseBatchNorm2d = Empty
+            DenseBatchNorm2d = Empty
             SparseConv2d = change_default_args(bias=True)(spconv.SparseConv2d)
             DenseConv2d = change_default_args(bias=True)(nn.Conv2d)
             ConvTranspose2d = change_default_args(bias=True)(
                 spconv.SparseConvTranspose2d)
         print("STRIDE:", stride)
 
-        if idx == 0:
+        if idx <= LAST_SPARSE_IDX:
             block = spconv.SparseSequential(
                 SparseZeroPad2d(1),
                 SparseConv2d(inplanes, planes, 3, stride=stride),
-                BatchNorm2d(planes),
+                SparseBatchNorm2d(planes),
                 nn.ReLU(),
             )
             for j in range(num_blocks):
                 block.add(SparseConv2d(planes, planes, 3, padding=1))
-                block.add(BatchNorm2d(planes))
+                block.add(SparseBatchNorm2d(planes))
                 block.add(nn.ReLU())
         else:
             block = Sequential(
                 nn.ZeroPad2d(1),
                 DenseConv2d(inplanes, planes, 3, stride=stride),
-                BatchNorm2d(planes),
+                DenseBatchNorm2d(planes),
                 nn.ReLU(),
             )
             for j in range(num_blocks):
                 block.add(DenseConv2d(planes, planes, 3, padding=1))
-                block.add(BatchNorm2d(planes))
+                block.add(DenseBatchNorm2d(planes))
                 block.add(nn.ReLU())
 
         return block, planes
@@ -953,17 +970,22 @@ class RPNV2SemiSparse(RPNBaseSparse):
         stride = self._upsample_strides[idx - self._upsample_start_idx]
         if self._use_norm:
             if self._use_groupnorm:
-                BatchNorm2d = change_default_args(
+                SparseBatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+                DenseBatchNorm2d = change_default_args(
                     num_groups=self._num_groups, eps=1e-3)(GroupNorm)
             else:
-                BatchNorm2d = change_default_args(
+                SparseBatchNorm2d = change_default_args(
                     eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+                DenseBatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm2d)
             SparseConvTranspose2d = change_default_args(bias=False)(
                 spconv.SparseConvTranspose2d)
             DenseConvTranspose2d = change_default_args(bias=False)(
                 nn.ConvTranspose2d)
         else:
-            BatchNorm2d = Empty
+            SparseBatchNorm2d = Empty
+            DenseBatchNorm2d = Empty
             SparseConvTranspose2d = change_default_args(bias=True)(
                 spconv.SparseConvTranspose2d)
             DenseConvTranspose2d = change_default_args(bias=True)(
@@ -976,7 +998,7 @@ class RPNV2SemiSparse(RPNBaseSparse):
                     self._num_upsample_filters[idx - self._upsample_start_idx],
                     stride,
                     stride=stride),
-                BatchNorm2d(
+                SparseBatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
                 nn.ReLU(),
@@ -990,7 +1012,7 @@ class RPNV2SemiSparse(RPNBaseSparse):
                     self._num_upsample_filters[idx - self._upsample_start_idx],
                     stride,
                     stride=stride),
-                BatchNorm2d(
+                DenseBatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
                 nn.ReLU(),
