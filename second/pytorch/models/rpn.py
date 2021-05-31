@@ -728,9 +728,9 @@ class RPNNoHeadBaseSparse(nn.Module):
             # print("Block:")
             # print(self.blocks[i])
             # blocks_before = time.time()
-            if i == (LAST_SPARSE_IDX + 1):
-                # print(f"Made x dense at step {i}")
-                x = x.dense()
+            # if i == (LAST_SPARSE_IDX + 1):
+            #     # print(f"Made x dense at step {i}")
+            #     x = x.dense()
             # print(f"Block {i} before x type:", type(x))
             # print(self.blocks[i])
             x = self.blocks[i](x)
@@ -1129,6 +1129,52 @@ class RPNV2Pyramid2x2(RPNBaseSparse):
             nn.ReLU(),
             # PrintLayer(1),
         )
+        for j in range(num_blocks):
+            block.add(SubMConv2d(planes, planes, 3, padding=1))
+            block.add(BatchNorm2d(planes)),
+            block.add(nn.ReLU())
+            # block.add(PrintLayer(2 + j))
+
+        return block, planes
+
+@register_rpn
+class RPNV2Pyramid2x2Wide(RPNBaseSparse):
+    def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
+        print("NUM BLOCKS:", num_blocks, "STRIDE:", stride)
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(
+                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(
+                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
+            SubMConv2d = change_default_args(bias=False)(spconv.SubMConv2d)
+            ConvTranspose2d = change_default_args(bias=False)(
+                spconv.SparseConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
+            SubMConv2d = change_default_args(bias=True)(spconv.SubMConv2d)
+            ConvTranspose2d = change_default_args(bias=True)(
+                spconv.SparseConvTranspose2d)
+
+        block = spconv.SparseSequential()
+
+        wide_conv_schedule = [None, 3, 5]
+        filter_radius = wide_conv_schedule[idx]
+
+        if filter_radius is not None:
+            print("Filter radius:", filter_radius)
+            block.add(SubMConv2d(inplanes, inplanes, filter_radius * 2 + 1, padding=0))
+            # Substitute for later convs.
+            num_blocks -= 1
+
+
+        block.add(Conv2d(inplanes, planes, 2, stride=stride))
+        block.add(BatchNorm2d(planes))
+        block.add(nn.ReLU())
+
         for j in range(num_blocks):
             block.add(SubMConv2d(planes, planes, 3, padding=1))
             block.add(BatchNorm2d(planes)),
