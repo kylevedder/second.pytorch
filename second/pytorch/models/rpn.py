@@ -754,9 +754,9 @@ class RPNNoHeadBaseSparse(nn.Module):
         # print("Blocks total ms: %.2f" % (blocks_total_time * 1000),
         #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
         if len(ups) > 0:
-            # lst = [e.dense() for e in ups]
+            lst = [e.dense() for e in ups]
             # print("DENSE SHAPES:", [e.shape for e in lst])
-            x = torch.cat(ups, dim=1)
+            x = torch.cat(lst, dim=1)
             # print("DENSE SHAPE:", x.shape)
             # x_sp = cat_sparse_dim1(ups).dense() #torch.cat(ups, dim=1)
             # print("SPARSE SHAPE:", x_sp.shape)
@@ -1161,12 +1161,12 @@ class RPNV2Pyramid2x2Wide(RPNBaseSparse):
 
         block = spconv.SparseSequential()
 
-        wide_conv_schedule = [None, 3, 5]
+        wide_conv_schedule = [None, 7, 9]
         filter_radius = wide_conv_schedule[idx]
 
         if filter_radius is not None:
             print("Filter radius:", filter_radius)
-            block.add(SubMConv2d(inplanes, inplanes, filter_radius * 2 + 1, padding=0))
+            block.add(SubMConv2d(inplanes, inplanes, filter_radius))
             # Substitute for later convs.
             num_blocks -= 1
 
