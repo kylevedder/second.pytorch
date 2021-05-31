@@ -581,7 +581,7 @@ class RPNNoHead(RPNNoHeadBase):
 
 ############################ Sparse implementation
 
-LAST_SPARSE_IDX = 0
+LAST_SPARSE_IDX = 1
 
 class RPNNoHeadBaseSparse(nn.Module):
     def __init__(self,
@@ -991,7 +991,7 @@ class RPNV2SemiSparse(RPNBaseSparse):
             DenseConvTranspose2d = change_default_args(bias=True)(
                 nn.ConvTranspose2d)
         stride = np.round(stride).astype(np.int64)
-        if (idx == 0):
+        if (idx <= LAST_SPARSE_IDX):
             deblock = spconv.SparseSequential(
                 SparseConvTranspose2d(
                     num_out_filters,
