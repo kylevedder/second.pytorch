@@ -1,7 +1,7 @@
  #!/bin/bash
 srun --gpus=1\
- --mem-per-gpu=32G\
- --cpus-per-gpu=16\
+ --mem-per-gpu=20G\
+ --cpus-per-gpu=8\
  --qos=eaton-high\
  --container-mounts=/Datasets:/Datasets,/home/kvedder/code/second.pytorch:/second.pytorch\
  --container-image=docker-registry.grasp.cluster#second-pytorch-sparse\

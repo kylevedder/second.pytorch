@@ -535,9 +535,9 @@ def evaluate(config_path,
     print(f'generate label finished({sec_per_example:.2f}/s). start eval:')
     if measure_time:
         print(
-            f"avg example to torch time: {np.mean(prep_example_times) * 1000:.3f} ms"
+            f"avg example to torch time = {np.mean(prep_example_times) * 1000:.3f} ms"
         )
-        print(f"avg prep time: {np.mean(prep_times) * 1000:.3f} ms")
+        print(f"avg prep time = {np.mean(prep_times) * 1000:.3f} ms")
     for name, val in net.get_avg_time_dict().items():
         print(f"avg {name} time = {val * 1000:.3f} ms")
     with open(result_path_step / "result.pkl", 'wb') as f:

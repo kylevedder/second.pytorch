@@ -756,6 +756,7 @@ class RPNNoHeadBaseSparse(nn.Module):
         if len(ups) > 0:
             lst = [e.dense() for e in ups]
             # print("DENSE SHAPES:", [e.shape for e in lst])
+            # x = torch.cat(ups, dim=1)
             x = torch.cat(lst, dim=1)
             # print("DENSE SHAPE:", x.shape)
             # x_sp = cat_sparse_dim1(ups).dense() #torch.cat(ups, dim=1)
