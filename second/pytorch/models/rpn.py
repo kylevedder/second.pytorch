@@ -320,10 +320,13 @@ class RPNNoHeadBase(nn.Module):
 
         ups = []
         stage_outputs = []
+        # plot_pseudo_img(x, "before")
         for i in range(len(self.blocks)):
             # blocks_before = time.time()
             # print(f"Before block {i} shape:", x.shape)
+            # plot_pseudo_img(x, f"beforeblock{i}")
             x = self.blocks[i](x)
+            # plot_pseudo_img(x, f"block{i}")
             # blocks_after = time.time()
             # blocks_total_time += (blocks_after - blocks_before)
             # print(f"Block {i} shape:", x.shape)
@@ -331,10 +334,13 @@ class RPNNoHeadBase(nn.Module):
             if i - self._upsample_start_idx >= 0:
                 # deblocks_before = time.time()
                 res = self.deblocks[i - self._upsample_start_idx](x)
+                # plot_pseudo_img(res, f"deblock{i}")
                 # deblocks_after = time.time()
                 # deblocks_total_time += (deblocks_after - deblocks_before)
                 # print(f"Deblock {i} shape:", res.shape)
                 ups.append(res)
+
+        # exit(0)
 
         # print(">>>>>>Blocks total ms: %.2f" % (blocks_total_time * 1000),
         #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
@@ -643,12 +649,12 @@ class RPNNoHeadBaseSparse(nn.Module):
         self._num_out_filters = num_out_filters
         self.blocks = nn.ModuleList(blocks)
         self.deblocks = nn.ModuleList(deblocks)
-        print("Blocks:")
-        for b in blocks:
-            print(b)
-        print("Deblocks:")
-        for d in deblocks:
-            print(d)
+        # print("Blocks:")
+        # for b in blocks:
+        #     print(b)
+        # print("Deblocks:")
+        # for d in deblocks:
+        #     print(d)
 
     @property
     def downsample_factor(self):
@@ -710,6 +716,7 @@ class RPNNoHeadBaseSparse(nn.Module):
                                             self._upsample_start_idx]),
                 nn.ReLU(),
             )
+        deblock.add(spconv.ToDense())
         return deblock
 
 
@@ -723,18 +730,18 @@ class RPNNoHeadBaseSparse(nn.Module):
         
         # blocks_total_time = 0
         # deblocks_total_time = 0
-        # plot_pseudo_img(x, "Raw pseudoimage")
+        # plot_pseudo_img(x, "before")
         for i in range(len(self.blocks)):
             # print("Block:")
             # print(self.blocks[i])
             # blocks_before = time.time()
             # if i == (LAST_SPARSE_IDX + 1):
-            #     # print(f"Made x dense at step {i}")
+            # #     # print(f"Made x dense at step {i}")
             #     x = x.dense()
             # print(f"Block {i} before x type:", type(x))
             # print(self.blocks[i])
             x = self.blocks[i](x)
-
+            # plot_pseudo_img(x, f"block{i}")
             # plot_pseudo_img(x, f"After block {i}")
             # blocks_after = time.time()
             # blocks_total_time += (blocks_after - blocks_before)
@@ -743,7 +750,7 @@ class RPNNoHeadBaseSparse(nn.Module):
             if i - self._upsample_start_idx >= 0:
                 # deblocks_before = time.time()
                 res = self.deblocks[i - self._upsample_start_idx](x)
-
+                # plot_pseudo_img(res, f"deblock{i}")
                 # plot_pseudo_img(res, f"After deblock {i}")
                 # deblocks_after = time.time()
                 # deblocks_total_time += (deblocks_after - deblocks_before)
@@ -754,10 +761,11 @@ class RPNNoHeadBaseSparse(nn.Module):
         # print("Blocks total ms: %.2f" % (blocks_total_time * 1000),
         #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))
         if len(ups) > 0:
-            lst = [e.dense() for e in ups]
+            #lst = [e.dense() for e in ups]
+            #x = torch.cat(lst, dim=1)
+             x = torch.cat(ups, dim=1)
             # print("DENSE SHAPES:", [e.shape for e in lst])
-            # x = torch.cat(ups, dim=1)
-            x = torch.cat(lst, dim=1)
+            
             # print("DENSE SHAPE:", x.shape)
             # x_sp = cat_sparse_dim1(ups).dense() #torch.cat(ups, dim=1)
             # print("SPARSE SHAPE:", x_sp.shape)
@@ -795,14 +803,41 @@ def plot_pseudo_img(t, title):
     ts = [t[v] for v in range(t.shape[0])]
     imgs = [np.any(t, 0) for t in ts]
 
+    print(t.shape)
     import matplotlib.pyplot as plt
-    for idx, img in enumerate(imgs):
-        plt.subplot(2, 1, idx + 1)
-        flt_img = img.flatten()
-        nonzeros = flt_img.sum()
-        plt.title(title + " Nonzeros: " + str(nonzeros) + "/" + str(flt_img.shape[0]) + " = %: " + str(nonzeros / flt_img.shape[0]))
-        plt.imshow(img)
-    plt.show()
+    import matplotlib
+    matplotlib.use('pgf')
+    matplotlib.rcParams.update({# Use mathtext, not LaTeX
+                            'text.usetex': False,
+                            # Use the Computer modern font
+                            'font.family': 'serif',
+                            'font.serif': ['cmr10'],
+                            'font.size' : 6,
+                            'mathtext.fontset': 'cm',
+                            # Use ASCII minus
+                            'axes.unicode_minus': False,
+                            })
+    img = imgs[0]
+    flt_img = img.flatten()
+    nonzeros = flt_img.sum()
+    print(str(nonzeros) + "/" + str(flt_img.shape[0]))
+    print(img.shape)
+    dpi = 100
+    figsize = (img.shape[0] / dpi, img.shape[1] / dpi)
+    plt.figure(figsize=figsize, dpi=dpi)
+    plt.imshow(img, cmap='gray', interpolation='none')
+    plt.clim(0,1)
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    plt.axis('off')
+    plt.savefig(f"{title}.pdf", bbox_inches='tight', pad_inches=0)
+    # for idx, img in enumerate(imgs):
+    #     plt.subplot(t.shape[0], 1, idx + 1)
+    #     flt_img = img.flatten()
+    #     nonzeros = flt_img.sum()
+    #     plt.title(title + " Nonzeros: " + str(nonzeros) + "/" + str(flt_img.shape[0]) + " = %: " + str(nonzeros / flt_img.shape[0]))
+    #     plt.imshow(img)
+    # plt.show()
 
 class RPNBaseSparse(RPNNoHeadBaseSparse):
     def __init__(self,

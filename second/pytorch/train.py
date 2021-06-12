@@ -7,12 +7,14 @@ import shutil
 import time
 import re 
 import fire
+import random
 import numpy as np
 import torch
 from google.protobuf import text_format
 
 import second.data.kitti_common as kitti
 import torchplus
+from functools import partial
 from second.builder import target_assigner_builder, voxel_builder
 from second.core import box_np_ops
 from second.data.preprocess import merge_second_batch, merge_second_batch_multigpu
@@ -67,9 +69,10 @@ def build_network(model_cfg, measure_time=False):
         model_cfg, voxel_generator, target_assigner, measure_time=measure_time)
     return net
 
-def _worker_init_fn(worker_id):
-    time_seed = np.array(time.time(), dtype=np.int32)
-    np.random.seed(time_seed + worker_id)
+def _worker_init_fn(worker_id, seed=None):
+    if seed is None:
+        time_seed = np.array(time.time(), dtype=np.int32)
+        np.random.seed(time_seed + worker_id)        
     print(f"WORKER {worker_id} seed:", np.random.get_state()[1][0])
 
 def freeze_params(params: dict, include: str=None, exclude: str=None):
@@ -126,9 +129,16 @@ def filter_param_dict(state_dict: dict, include: str=None, exclude: str=None):
         res_dict[k] = p
     return res_dict
 
+def set_seed(seed):
+    if seed is not None:
+        print("Setting seed to", seed)
+        torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
 
 def train(config_path,
           model_dir,
+          seed=None,
           result_path=None,
           create_folder=False,
           display_step=50,
@@ -143,6 +153,7 @@ def train(config_path,
           resume=False):
     """train a VoxelNet model specified by a config file.
     """
+    set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     model_dir = str(Path(model_dir).resolve())
@@ -176,6 +187,9 @@ def train(config_path,
     train_cfg = config.train_config
 
     net = build_network(model_cfg, measure_time).to(device)
+
+    set_seed(seed)
+
     # if train_cfg.enable_mixed_precision:
     #     net.half()
     #     net.metrics_to_float()
@@ -266,7 +280,7 @@ def train(config_path,
         num_workers=input_cfg.preprocess.num_workers * num_gpu,
         pin_memory=False,
         collate_fn=collate_fn,
-        worker_init_fn=_worker_init_fn,
+        worker_init_fn=partial(_worker_init_fn, seed=seed),
         drop_last=not multi_gpu)
     eval_dataloader = torch.utils.data.DataLoader(
         eval_dataset,
