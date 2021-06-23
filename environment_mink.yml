@@ -1,0 +1,30 @@
+name: secondmink
+channels:
+  - pytorch
+  - conda-forge
+  - anaconda
+  - defaults
+dependencies:
+  - cudatoolkit=11.0
+  - cudatoolkit-dev=11.0
+  - cudnn=8.0.5
+  - openblas-devel
+  - python=3.7
+  - pytorch=1.7.1
+  - torchaudio=0.7.2
+  - torchvision=0.8.2
+  - seaborn
+  - scikit-image 
+  - scipy   
+  - numba 
+  - pillow
+  - pip 
+  - psutil
+  - matplotlib
+  - pip:
+    - minkowskiengine==0.5.4
+    - fire
+    - tensorboardX 
+    - protobuf 
+    - opencv-python
+prefix: /home/k/miniconda3/envs/secondmink
