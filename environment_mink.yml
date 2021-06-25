@@ -27,4 +27,5 @@ dependencies:
     - tensorboardX 
     - protobuf 
     - opencv-python
+    - nuscenes-devkit
 prefix: /home/k/miniconda3/envs/secondmink

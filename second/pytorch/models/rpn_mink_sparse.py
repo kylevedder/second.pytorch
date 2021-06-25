@@ -11,12 +11,22 @@ from spconv.modules import SparseModule
 
 from second.pytorch.models.rpn import register_rpn
 
+import MinkowskiEngine as ME
+
 from torchplus.nn import Empty, GroupNorm, Sequential
 from torchplus.tools import change_default_args
 
 LAST_SPARSE_IDX = 1
 
-class RPNNoHeadBaseSparse(nn.Module):
+class ToDenseMink(SparseModule):
+    def __init__(self):
+        super(ToDenseMink, self).__init__()
+        self.min_coordinate = torch.IntTensor([0, 0])
+    
+    def forward(self, x):
+        return x.dense(shape=torch.Size([x.C[-1, 0].item() + 1, 128, 248, 216]), min_coordinate=self.min_coordinate)[0]
+
+class RPNNoHeadBaseMESparse(nn.Module):
     def __init__(self,
                  use_norm=True,
                  num_class=2,
@@ -37,7 +47,7 @@ class RPNNoHeadBaseSparse(nn.Module):
         """upsample_strides support float: [0.25, 0.5, 1]
         if upsample_strides < 1, conv2d will be used instead of convtranspose2d.
         """
-        super(RPNNoHeadBaseSparse, self).__init__()
+        super(RPNNoHeadBaseMESparse, self).__init__()
         self._layer_strides = layer_strides
         self._num_filters = num_filters
         self._layer_nums = layer_nums
@@ -97,24 +107,22 @@ class RPNNoHeadBaseSparse(nn.Module):
     def _make_deblock(self, num_out_filters, idx):
         stride = self._upsample_strides[idx - self._upsample_start_idx]
         if self._use_norm:
-            if self._use_groupnorm:
-                BatchNorm2d = change_default_args(
-                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
-            else:
-                BatchNorm2d = change_default_args(
-                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
-            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
-            ConvTranspose2d = change_default_args(bias=False)(
-                spconv.SparseConvTranspose2d)
+            BatchNorm2d = change_default_args(
+                eps=1e-3, momentum=0.01)(ME.MinkowskiBatchNorm)
+            Conv2d = change_default_args(bias=False, dimension=2)(ME.MinkowskiConvolution)
+            ConvTranspose2d = change_default_args(bias=False, dimension=2)(
+                ME.MinkowskiConvolutionTranspose)
         else:
             BatchNorm2d = Empty
-            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
-            ConvTranspose2d = change_default_args(bias=True)(
-                spconv.SparseConvTranspose2d)
+            Conv2d = change_default_args(bias=True, dimension=2)(ME.MinkowskiConvolution)
+            ConvTranspose2d = change_default_args(bias=True, dimension=2)(
+                ME.MinkowskiConvolutionTranspose)
+        ReLU = ME.MinkowskiReLU()
+
         if stride >= 1:
             stride = np.round(stride).astype(np.int64)
             print("DEBLOCK CONV_TRANSPOSE STRIDE:", stride)
-            deblock = spconv.SparseSequential(
+            deblock = Sequential(
                 # PrintLayer(stride),
                 ConvTranspose2d(
                     num_out_filters,
@@ -125,12 +133,12 @@ class RPNNoHeadBaseSparse(nn.Module):
                 BatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
-                nn.ReLU(),
+                ReLU,
             )
         else:
             stride = np.round(1 / stride).astype(np.int64)
             print("DEBLOCK CONV STRIDE:", stride)
-            deblock = spconv.SparseSequential(
+            deblock = Sequential(
                 # PrintLayer(stride),
                 Conv2d(
                     num_out_filters,
@@ -141,17 +149,25 @@ class RPNNoHeadBaseSparse(nn.Module):
                 BatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
-                nn.ReLU(),
+                ReLU,
             )
-        deblock.add(spconv.ToDense())
+        deblock.add(ToDenseMink())
         return deblock
 
 
     def forward(self, x):
+
         ups = []
         stage_outputs = []
-        # print("Input: ", x.shape)
-        x = spconv.SparseConvTensor.from_sparse(x)
+        # print("Input shape:", x.shape)
+        # plot_pseudo_img(x, "Coo")
+        vals = x._values()
+        # print("Vals:", vals.shape)
+        idxs = x._indices().permute(1, 0).contiguous().int()
+        # print("Idxs:", idxs.shape)
+        
+        x = ME.SparseTensor(vals, idxs) 
+        #spconv.SparseConvTensor.from_sparse(x)
         # print(" Before sparsity: %.4f" % x.sparity, "shape:", x.dense().shape)
         # after_from_dense = time.time()
         
@@ -190,9 +206,17 @@ class RPNNoHeadBaseSparse(nn.Module):
         if len(ups) > 0:
             #lst = [e.dense() for e in ups]
             #x = torch.cat(lst, dim=1)
+            # for idx, e in enumerate(ups):
+            #     print(idx)
+            #     tensor, min_coordinate, tensor_stride = e
+            #     print(tensor.shape)
+            #     print(min_coordinate.shape)
+            #     print(tensor_stride.shape)
             # print([e.shape for e in ups])
             x = torch.cat(ups, dim=1)
             # print("Cat'd shape:", x.shape)
+            #[2, 384, 248, 216]
+            # [2, 384, 248, 216]
             # print("DENSE SHAPES:", [e.shape for e in lst])
             
             # print("DENSE SHAPE:", x.shape)
@@ -222,6 +246,8 @@ class RPNNoHeadBaseSparse(nn.Module):
 def plot_pseudo_img(t, title):
     if isinstance(t, spconv.SparseConvTensor):
         t = t.dense().detach()
+    elif isinstance(t, ME.SparseTensor):
+        t = t.dense()[0].detach()
     elif isinstance(t, torch.Tensor):
         t = t.detach()
         if t.is_sparse:
@@ -235,7 +261,7 @@ def plot_pseudo_img(t, title):
     print(t.shape)
     import matplotlib.pyplot as plt
     import matplotlib
-    matplotlib.use('pgf')
+    # matplotlib.use('pgf')
     matplotlib.rcParams.update({# Use mathtext, not LaTeX
                             'text.usetex': False,
                             # Use the Computer modern font
@@ -259,7 +285,8 @@ def plot_pseudo_img(t, title):
     # ax.get_xaxis().set_visible(False)
     # ax.get_yaxis().set_visible(False)
     plt.axis('off')
-    plt.savefig(f"{title}.pdf", bbox_inches='tight', pad_inches=0)
+    plt.show()
+    # plt.savefig(f"{title}.pdf", bbox_inches='tight', pad_inches=0)
     # for idx, img in enumerate(imgs):
     #     plt.subplot(t.shape[0], 1, idx + 1)
     #     flt_img = img.flatten()
@@ -268,7 +295,7 @@ def plot_pseudo_img(t, title):
     #     plt.imshow(img)
     # plt.show()
 
-class RPNBaseSparse(RPNNoHeadBaseSparse):
+class RPNBaseMESparse(RPNNoHeadBaseMESparse):
     def __init__(self,
                  use_norm=True,
                  num_class=2,
@@ -289,7 +316,7 @@ class RPNBaseSparse(RPNNoHeadBaseSparse):
         """upsample_strides support float: [0.25, 0.5, 1]
         if upsample_strides < 1, conv2d will be used instead of convtranspose2d.
         """
-        super(RPNBaseSparse, self).__init__(
+        super(RPNBaseMESparse, self).__init__(
             use_norm=use_norm,
             num_class=num_class,
             layer_nums=layer_nums,
@@ -356,30 +383,8 @@ class RPNBaseSparse(RPNNoHeadBaseSparse):
             ret_dict["dir_cls_preds"] = dir_cls_preds
         return ret_dict
 
-class PrintLayer(SparseModule):
-    def __init__(self, msg):
-        super(PrintLayer, self).__init__()
-        self.msg = msg
-    
-    def forward(self, x):
-        # Do your print / debug stuff here
-        print(self.msg, "Shape:", x.dense().shape, "Sparsity:", x.sparity)
-        return x
-
-class SparseZeroPad2d(SparseModule):
-    def __init__(self, pad):
-        super(SparseModule, self).__init__()
-        self.pad = pad
-
-    def forward(self, x):
-        w, h = x.spatial_shape
-        x.spatial_shape = torch.Size([w + 2 * self.pad, h + 2 * self.pad])
-        x.indices[:, 1] += self.pad
-        x.indices[:, 2] += self.pad
-        return x
-
 @register_rpn
-class RPNV2SemiSparse(RPNBaseSparse):
+class RPNV2MESemiSparse(RPNBaseMESparse):
     def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         if self._use_norm:
             if self._use_groupnorm:
@@ -441,23 +446,24 @@ class RPNV2SemiSparse(RPNBaseSparse):
                     num_groups=self._num_groups, eps=1e-3)(GroupNorm)
             else:
                 SparseBatchNorm2d = change_default_args(
-                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
+                eps=1e-3, momentum=0.01)(ME.MinkowskiBatchNorm)
                 DenseBatchNorm2d = change_default_args(
                     eps=1e-3, momentum=0.01)(nn.BatchNorm2d)
-            SparseConvTranspose2d = change_default_args(bias=False)(
-                spconv.SparseConvTranspose2d)
+            SparseConvTranspose2d = change_default_args(bias=False, dimension=2)(
+                ME.MinkowskiConvolutionTranspose)
             DenseConvTranspose2d = change_default_args(bias=False)(
                 nn.ConvTranspose2d)
         else:
             SparseBatchNorm2d = Empty
             DenseBatchNorm2d = Empty
-            SparseConvTranspose2d = change_default_args(bias=True)(
-                spconv.SparseConvTranspose2d)
+            SparseConvTranspose2d = change_default_args(bias=True, dimension=2)(
+                ME.MinkowskiConvolutionTranspose)
             DenseConvTranspose2d = change_default_args(bias=True)(
                 nn.ConvTranspose2d)
+        ReLU = ME.MinkowskiReLU()
         stride = np.round(stride).astype(np.int64)
         if (idx <= LAST_SPARSE_IDX):
-            deblock = spconv.SparseSequential(
+            deblock = Sequential(
                 SparseConvTranspose2d(
                     num_out_filters,
                     self._num_upsample_filters[idx - self._upsample_start_idx],
@@ -466,8 +472,8 @@ class RPNV2SemiSparse(RPNBaseSparse):
                 SparseBatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
-                nn.ReLU(),
-                spconv.ToDense()
+                ReLU,
+                ME.ToDense()
             )
         else:
             stride = np.round(stride).astype(np.int64)
@@ -480,12 +486,12 @@ class RPNV2SemiSparse(RPNBaseSparse):
                 DenseBatchNorm2d(
                     self._num_upsample_filters[idx -
                                             self._upsample_start_idx]),
-                nn.ReLU(),
+                ReLU,
             )
         return deblock
 
 @register_rpn
-class RPNV2Sparse(RPNBaseSparse):
+class RPNV2MESparse(RPNBaseMESparse):
     def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         if self._use_norm:
             if self._use_groupnorm:
@@ -528,7 +534,7 @@ class SparseScale2d(SparseModule):
         return x
 
 @register_rpn
-class RPNV2Pyramid(RPNBaseSparse):
+class RPNV2MEPyramid(RPNBaseMESparse):
     def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         print("NUM BLOCKS:", num_blocks)
         if self._use_norm:
@@ -566,44 +572,41 @@ class RPNV2Pyramid(RPNBaseSparse):
         return block, planes
 
 @register_rpn
-class RPNV2Pyramid2x2(RPNBaseSparse):
+class RPNV2MEPyramid2x2(RPNBaseMESparse):
     def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         print("NUM BLOCKS:", num_blocks, "STRIDE:", stride)
         if self._use_norm:
-            if self._use_groupnorm:
-                BatchNorm2d = change_default_args(
-                    num_groups=self._num_groups, eps=1e-3)(GroupNorm)
-            else:
-                BatchNorm2d = change_default_args(
-                    eps=1e-3, momentum=0.01)(nn.BatchNorm1d)
-            Conv2d = change_default_args(bias=False)(spconv.SparseConv2d)
-            SubMConv2d = change_default_args(bias=False)(spconv.SubMConv2d)
-            ConvTranspose2d = change_default_args(bias=False)(
-                spconv.SparseConvTranspose2d)
+            BatchNorm2d = change_default_args(
+                eps=1e-3, momentum=0.01)(ME.MinkowskiBatchNorm)
+            Conv2d = change_default_args(bias=False, dimension=2)(ME.MinkowskiConvolution)
+            SubMConv2d = change_default_args(bias=False, dimension=2)(ME.MinkowskiConvolution)
+            ConvTranspose2d = change_default_args(bias=False, dimension=2)(
+                ME.MinkowskiConvolutionTranspose)
         else:
             BatchNorm2d = Empty
-            Conv2d = change_default_args(bias=True)(spconv.SparseConv2d)
-            SubMConv2d = change_default_args(bias=True)(spconv.SubMConv2d)
-            ConvTranspose2d = change_default_args(bias=True)(
-                spconv.SparseConvTranspose2d)
+            Conv2d = change_default_args(bias=True, dimension=2)(ME.MinkowskiConvolution)
+            SubMConv2d = change_default_args(bias=True, dimension=2)(ME.MinkowskiConvolution)
+            ConvTranspose2d = change_default_args(bias=True, dimension=2)(
+                ME.MinkowskiConvolutionTranspose)
+        ReLU = ME.MinkowskiReLU()
 
-        block = spconv.SparseSequential(    
+        block = Sequential(    
             # PrintLayer(0),   
             Conv2d(inplanes, planes, 2, stride=stride),
             BatchNorm2d(planes),
-            nn.ReLU(),
+            ReLU,
             # PrintLayer(1),
         )
         for j in range(num_blocks):
-            block.add(SubMConv2d(planes, planes, 3, padding=1))
+            block.add(SubMConv2d(planes, planes, 3))
             block.add(BatchNorm2d(planes)),
-            block.add(nn.ReLU())
+            block.add(ReLU)
             # block.add(PrintLayer(2 + j))
 
         return block, planes
 
 @register_rpn
-class RPNV2Pyramid2x2Wide(RPNBaseSparse):
+class RPNV2MEPyramid2x2Wide(RPNBaseMESparse):
     def _make_layer(self, inplanes, planes, num_blocks, idx, stride=1):
         print("NUM BLOCKS:", num_blocks, "STRIDE:", stride)
         if self._use_norm:

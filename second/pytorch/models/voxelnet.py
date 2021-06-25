@@ -12,7 +12,7 @@ from second.pytorch.core import box_torch_ops
 from second.pytorch.core.losses import (WeightedSigmoidClassificationLoss,
                                         WeightedSmoothL1LocalizationLoss,
                                         WeightedSoftmaxClassificationLoss)
-from second.pytorch.models import middle, pointpillars, rpn, rpn_spconv_sparse, voxel_encoder
+from second.pytorch.models import middle, pointpillars, rpn, rpn_spconv_sparse, rpn_mink_sparse, voxel_encoder
 from torchplus import metrics
 from second.pytorch.utils import torch_timer
 
