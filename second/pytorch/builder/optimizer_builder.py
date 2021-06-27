@@ -35,6 +35,14 @@ flatten_model = lambda m: sum(map(flatten_model,m.children()),[]) if num_childre
 get_layer_groups = lambda m: [nn.Sequential(*flatten_model(m))]
 
 
+def get_initial_learning_rate(config):
+    lr_type = config.WhichOneof('learning_rate')
+    if lr_type == "exponential_decay":
+        return config.exponential_decay.initial_learning_rate
+    else:
+        return 3e-3
+
+
 def build(optimizer_config, net, name=None, mixed=False, loss_scale=512.0):
     """Create optimizer based on config.
 
@@ -52,6 +60,7 @@ def build(optimizer_config, net, name=None, mixed=False, loss_scale=512.0):
 
     if optimizer_type == 'rms_prop_optimizer':
         config = optimizer_config.rms_prop_optimizer
+        initial_lr = get_initial_learning_rate(config.learning_rate)
         optimizer_func = partial(
             torch.optim.RMSprop,
             alpha=config.decay,
@@ -60,6 +69,7 @@ def build(optimizer_config, net, name=None, mixed=False, loss_scale=512.0):
 
     if optimizer_type == 'momentum_optimizer':
         config = optimizer_config.momentum_optimizer
+        initial_lr = get_initial_learning_rate(config.learning_rate)
         optimizer_func = partial(
             torch.optim.SGD,
             momentum=config.momentum_optimizer_value,
@@ -67,6 +77,7 @@ def build(optimizer_config, net, name=None, mixed=False, loss_scale=512.0):
 
     if optimizer_type == 'adam_optimizer':
         config = optimizer_config.adam_optimizer
+        initial_lr = get_initial_learning_rate(config.learning_rate)
         if optimizer_config.fixed_weight_decay:
             optimizer_func = partial(
                 torch.optim.Adam, betas=(0.9, 0.99), amsgrad=config.amsgrad)
@@ -76,11 +87,10 @@ def build(optimizer_config, net, name=None, mixed=False, loss_scale=512.0):
                 torch.optim.Adam, amsgrad=config.amsgrad)
 
 
-
     # optimizer = OptimWrapper(optimizer, true_wd=optimizer_config.fixed_weight_decay, wd=config.weight_decay)
     optimizer = OptimWrapper.create(
         optimizer_func,
-        3e-3,
+        initial_lr,
         get_layer_groups(net),
         wd=config.weight_decay,
         true_wd=optimizer_config.fixed_weight_decay,

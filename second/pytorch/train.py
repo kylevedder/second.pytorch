@@ -219,6 +219,7 @@ def train(config_path,
     else:
         net_parallel = net
     optimizer_cfg = train_cfg.optimizer
+    print("OPTIMIZER CONFIG:", optimizer_cfg)
     loss_scale = train_cfg.loss_scale_factor
     fastai_optimizer = optimizer_builder.build(
         optimizer_cfg,
