@@ -5,7 +5,7 @@ srun --gpus=1\
  --qos=eaton-high\
  --container-mounts=/Datasets:/Datasets,/home/kvedder/code/second.pytorch:/second.pytorch\
  --container-image=docker-registry.grasp.cluster#second-pytorch-sparse\
- --time=24:00:00\
+ --time=00:30:00\
  --partition=eaton-compute\
  bash -c "nvidia-smi && python ./pytorch/train.py evaluate --config_path=./configs/pointpillars/car/xyres_16_sparse_me.config --model_dir=./model_dir_car_16_sparse_me/ --measure_time=True"
 # -w node-3090-1\
