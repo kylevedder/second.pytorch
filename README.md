@@ -6,7 +6,7 @@ This repo is built on top of [second.pytorch](https://github.com/traveller59/sec
 
 ## Codebase Map
 
-This codebases offers sparse backbones implemented using either [a fork of `spconv`](https://github.com/kylevedder/spconv) or [Minkowski Engine](https://github.com/NVIDIA/MinkowskiEngine) sparse operations. The implementation of the COO format Pillar Feature Net is found in [`second/pytorch/models/middle.py`](https://github.com/kylevedder/SparsePointPillars/blob/master/second/pytorch/models/middle.py), the `spconv` backbones are found in [`second/pytorch/models/rpn_spconv_sparse.py`](https://github.com/kylevedder/SparsePointPillars/blob/master/second/pytorch/models/rpn_spconv_sparse.py), and the Minkowski Engine backbones are found in [`second/pytorch/models/rpn_mink_sparse.py`](https://github.com/kylevedder/SparsePointPillars/blob/master/second/pytorch/models/rpn_mink_sparse.py).
+This codebases offers sparse backbones implemented using either [a fork of `spconv`](https://github.com/kylevedder/spconv) or [Minkowski Engine](https://github.com/NVIDIA/MinkowskiEngine) sparse operations. The implementation of the COO format Pillar Feature Net is found in [`second/pytorch/models/pointpillars.py`](https://github.com/kylevedder/SparsePointPillars/blob/master/second/pytorch/models/pointpillars.py), the `spconv` backbones are found in [`second/pytorch/models/rpn_spconv_sparse.py`](https://github.com/kylevedder/SparsePointPillars/blob/master/second/pytorch/models/rpn_spconv_sparse.py), and the Minkowski Engine backbones are found in [`second/pytorch/models/rpn_mink_sparse.py`](https://github.com/kylevedder/SparsePointPillars/blob/master/second/pytorch/models/rpn_mink_sparse.py).
 
 ## Development Environment Setup
 
