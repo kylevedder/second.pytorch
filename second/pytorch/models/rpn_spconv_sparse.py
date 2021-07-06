@@ -148,6 +148,7 @@ class RPNNoHeadBaseSparse(nn.Module):
 
 
     def forward(self, x):
+        x, batch_size = x
         ups = []
         stage_outputs = []
         # print("Input: ", x.shape)

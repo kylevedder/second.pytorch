@@ -19,12 +19,14 @@ from torchplus.tools import change_default_args
 LAST_SPARSE_IDX = 1
 
 class ToDenseMink(SparseModule):
-    def __init__(self):
+    def __init__(self, batch_size):
         super(ToDenseMink, self).__init__()
         self.min_coordinate = torch.IntTensor([0, 0])
+        self.batch_size = batch_size
     
     def forward(self, x):
-        return x.dense(shape=torch.Size([x.C[-1, 0].item() + 1, 128, 248, 216]), min_coordinate=self.min_coordinate)[0]
+        shape = torch.Size([self.batch_size, 128, 248, 216])
+        return x.dense(shape=shape, min_coordinate=self.min_coordinate)[0]
 
 class RPNNoHeadBaseMESparse(nn.Module):
     def __init__(self,
@@ -151,12 +153,11 @@ class RPNNoHeadBaseMESparse(nn.Module):
                                             self._upsample_start_idx]),
                 ReLU,
             )
-        deblock.add(ToDenseMink())
         return deblock
 
 
     def forward(self, x):
-
+        x, batch_size = x
         ups = []
         stage_outputs = []
         # print("Input shape:", x.shape)
@@ -167,6 +168,7 @@ class RPNNoHeadBaseMESparse(nn.Module):
         # print("Idxs:", idxs.shape)
         
         x = ME.SparseTensor(vals, idxs) 
+        to_dense = ToDenseMink(batch_size)
         #spconv.SparseConvTensor.from_sparse(x)
         # print(" Before sparsity: %.4f" % x.sparity, "shape:", x.dense().shape)
         # after_from_dense = time.time()
@@ -199,7 +201,7 @@ class RPNNoHeadBaseMESparse(nn.Module):
                 # deblocks_total_time += (deblocks_after - deblocks_before)
                 # print(f"Deblock {i} shape:", res.dense().shape)
                 # print(f"Deblock {i} sparsity: %.4f" % res.sparity, "shape:", res.dense().shape)
-                ups.append(res)
+                ups.append(to_dense(res))
         # print(">>>>>>from_dense() time ms: %.2f" % ((after_from_dense - before_from_dense) * 1000), 
         # print("Blocks total ms: %.2f" % (blocks_total_time * 1000),
         #       "Deblocks total ms: %.2f" % (deblocks_total_time * 1000))

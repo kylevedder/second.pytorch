@@ -4,8 +4,13 @@ import time
 import numba
 import numpy as np
 from scipy.interpolate import interp1d
+import torch
 
-from second.core.non_max_suppression.nms_gpu import rotate_iou_gpu_eval
+USE_GPU = torch.cuda.is_available()
+
+if USE_GPU:
+    from second.core.non_max_suppression.nms_gpu import rotate_iou_gpu_eval
+
 from second.core import box_np_ops
 
 @numba.jit
@@ -120,8 +125,10 @@ def image_box_overlap(boxes, query_boxes, criterion=-1):
 
 
 def bev_box_overlap(boxes, qboxes, criterion=-1, stable=True):
-    # riou = box_np_ops.riou_cc(boxes, qboxes)
-    riou = rotate_iou_gpu_eval(boxes, qboxes, criterion)
+    if USE_GPU:
+        riou = rotate_iou_gpu_eval(boxes, qboxes, criterion)
+    else:
+        riou = box_np_ops.riou_cc(boxes, qboxes)
     return riou
 
 
@@ -172,7 +179,10 @@ def box3d_overlap(boxes, qboxes, criterion=-1, z_axis=1, z_center=1.0):
     
     # t = time.time()
     # rinc = box_np_ops.rinter_cc(boxes[:, bev_axes], qboxes[:, bev_axes])
-    rinc = rotate_iou_gpu_eval(boxes[:, bev_axes], qboxes[:, bev_axes], 2)
+    if USE_GPU:
+        rinc = rotate_iou_gpu_eval(boxes[:, bev_axes], qboxes[:, bev_axes], 2)
+    else:
+        rinc = box_np_ops.rinter_cc(boxes[:, bev_axes], qboxes[:, bev_axes])
     # print("riou time", time.time() - t)
     box3d_overlap_kernel(boxes, qboxes, rinc, criterion, z_axis, z_center)
     return rinc

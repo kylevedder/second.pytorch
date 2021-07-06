@@ -5,7 +5,6 @@ import numpy as np
 from spconv.utils import (
     non_max_suppression_cpu, rotate_non_max_suppression_cpu)
 from second.core import box_np_ops
-from second.core.non_max_suppression.nms_gpu import rotate_iou_gpu
 
 
 def nms_cc(dets, thresh):

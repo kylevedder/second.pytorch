@@ -511,4 +511,4 @@ class PointPillarsScatterSparse(nn.Module):
 
         out_shape = (batch_size, self.output_shape[2], self.output_shape[3], voxel_features.shape[1])
         sp_batch = torch.sparse_coo_tensor(sparse_coords.t(), voxel_features, out_shape)        
-        return sp_batch
+        return sp_batch, batch_size

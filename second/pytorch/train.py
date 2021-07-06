@@ -28,7 +28,7 @@ import psutil
 
 def example_convert_to_torch(example, dtype=torch.float32,
                              device=None) -> dict:
-    device = device or torch.device("cuda:0")
+    device = device or (torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu"))
     example_torch = {}
     float_names = [
         "voxels", "anchors", "reg_targets", "reg_weights", "bev_map", "importance"
@@ -534,11 +534,13 @@ def evaluate(config_path,
     for example in iter(eval_dataloader):
         if measure_time:
             prep_times.append(time.time() - t2)
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             t1 = time.time()
         example = example_convert_to_torch(example, float_dtype)
         if measure_time:
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             prep_example_times.append(time.time() - t1)
         with torch.no_grad():
             detections += net(example)

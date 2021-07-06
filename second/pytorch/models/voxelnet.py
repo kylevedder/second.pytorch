@@ -195,14 +195,16 @@ class VoxelNet(nn.Module):
     def start_timer(self, *names):
         if not self.measure_time:
             return
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         for name in names:
             self._time_dict[name] = time.time()
 
     def end_timer(self, name):
         if not self.measure_time:
             return
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         time_elapsed = time.time() - self._time_dict[name]
         if name not in self._time_count_dict:
             self._time_count_dict[name] = 1
